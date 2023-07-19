@@ -1,0 +1,1 @@
+from .gen_all_data_pipeline import gen_all_data, main

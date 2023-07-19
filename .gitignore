@@ -1,0 +1,11 @@
+data/*
+.idea/
+imgSL/
+gen_data/__pycache__/
+gen_data/*.pyc
+pubchem_39_200_100k/
+*csv
+*.pyc
+build
+dist
+*-info/
