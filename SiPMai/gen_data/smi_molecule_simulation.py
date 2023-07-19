@@ -107,12 +107,11 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
         mlab.axes()
         mlab.show()
 
-    # Build the matrix to start recording the height
-    points_initial = np.zeros([resolution, resolution])  # initialize
-    points_class = np.zeros([resolution, resolution])
+
     # Initializes the bool matrix that stores the atoms
-    points_bool = np.zeros([atom_num, resolution, resolution])
     points_bond_bool = np.zeros([bond_num, resolution, resolution])
+
+    # create coordinate mesh
     x_axes = np.linspace(x_min, x_max, resolution)
     y_axes = np.linspace(y_min, y_max, resolution)
     X, Y = np.meshgrid(x_axes, y_axes)
@@ -125,10 +124,8 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     the base plane is set as the xoy plane, and the virtual projection is made from top to bottom through 
     the point light source cluster, that is, the height of the highest atom contacted is taken as the height recorded
     '''
-    points_initial, points_bool, points_class = cal_atom_projection(atom_position, coordinate_points_array,
-                                                                    resolution,
-                                                                    points_bool,
-                                                                    points_initial, points_class, atom_class, z_min)
+    points_initial, points_bool, points_class = cal_atom_projection(np.array(atom_position), coordinate_points_array,
+                                                                    resolution,  atom_class, z_min)
     points_class = np.where(points_class == 0, 255, points_class)
     # attention! 图像坐标系的原点通常是左上角，而数组的索引是从左到右、从上到下的。因此，在将 NumPy 数组转换为 Pillow 图像对象时，需要将数组进行翻转，使其与图像坐标系保持一致。可以使用以下代码进行翻转：
     im = Image.fromarray(points_class[::-1, :])

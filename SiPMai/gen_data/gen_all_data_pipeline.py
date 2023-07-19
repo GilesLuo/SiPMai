@@ -9,7 +9,7 @@ from typing import Dict
 def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, max_atom: int, num_cpus: int,
                  mol_save_dir: str,
                  resolution: int, blur_sigma: int, use_motion_blur: bool, use_gaussian_noise: bool,
-                 gen_original_img: bool, img_show: bool,
+                 gen_original_img: bool, gen_mol_drawing:bool, img_show: bool,
                  train_ratio: float, val_ratio: float, test_ratio: float, split_seed: int,
                  development: bool = False) -> None:
     """
@@ -47,17 +47,17 @@ def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, m
     else:
         with open(smiles_file, 'r') as f:
             smiles_dict: Dict = json.load(f)
-            num_mol = len(smiles_dict)
-            print(f"Found {num_mol} molecules!")
-            if num_mol > num_mol:
+            num_mol_ = len(smiles_dict)
+            print(f"Found {num_mol_} molecules!")
+            if num_mol_ > num_mol:
                 print(f"use the first {num_mol} molecules for later steps")
                 smiles_dict = {k: smiles_dict[k] for k in list(smiles_dict)[:num_mol]}
     if num_cpus == 0:
         num_cpus = os.cpu_count()
 
     ray_gen_main(smiles_dict, mol_save_dir,
-                 resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img,
-                 num_cpus, img_show)
+                 resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img, gen_mol_drawing,
+                 num_cpus, img_show, development)
     gen_index_main(mol_save_dir, train_ratio, val_ratio, test_ratio, split_seed)
 
 
@@ -70,7 +70,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--development", type=bool, default=False,
-                        help="Whether to run in development mode. Defaults to False.")
+                        help="Whether to run in development mode. Development mode will run ray locally with serial output."
+                             "Defaults to False.")
     # gen smiles args
     parser.add_argument("--smiles_file", type=str, default="pubchem_39_200_100k.json",
                         help="The path to the file containing SMILES strings.")
@@ -81,19 +82,19 @@ def main() -> None:
     parser.add_argument("--max_atom", type=int, default=200, help="The maximum number of atoms for a molecule.")
 
     # gen ray args
-    cmd_dir = os.getcwd()
-    mol_save_dir = os.path.join(cmd_dir, "pubchem_39_200_100k")
-    print("mol_save_dir set to command execution dir: ", mol_save_dir)
-    parser.add_argument("--mol_save_dir", type=str, default=mol_save_dir,
+
+    parser.add_argument("--mol_save_dir", type=str, default="pubchem_39_200_100k",
                         help="The directory where the generated data should be saved.")
-    parser.add_argument("--resolution", type=int, default=256, help="The resolution of the generated images.")
-    parser.add_argument("--blur_sigma", type=int, default=24,
+
+    parser.add_argument("--resolution", type=int, default=512, help="The resolution of the generated images.")
+    parser.add_argument("--blur_sigma", type=int, default=34,
                         help="The sigma value for the Gaussian blur applied to the images.")
     parser.add_argument("--use_motion_blur", type=bool, default=False, help="Whether to use motion blur in the images.")
     parser.add_argument("--use_gaussian_noise", type=bool, default=False,
                         help="Whether to add Gaussian noise to the images.")
     parser.add_argument("--gen_original_img", type=bool, default=True, help="Whether to generate original images.")
-    parser.add_argument("--num_cpus", type=int, default=4, help="The number of CPUs to be used for data generation.")
+    parser.add_argument("--gen_mol_drawing", type=bool, default=True, help="Whether to generate mol images for eye inspection.")
+    parser.add_argument("--num_cpus", type=int, default=0, help="The number of CPUs to be used for data generation.")
     parser.add_argument("--show", type=bool, default=False, help="Whether to display the generated images.")
 
     # data indices args
@@ -105,10 +106,14 @@ def main() -> None:
 
     from pkg_resources import resource_filename
     args.smiles_file = resource_filename('SiPMai', f'smiles/{args.smiles_file}')
+    cmd_dir = os.getcwd()
+    args.mol_save_dir = os.path.join(cmd_dir, args.mol_save_dir)
+    print("mol_save_dir set to command execution dir: ", args.mol_save_dir)
     gen_all_data(smiles_file=args.smiles_file, num_mol=args.num_mol, csv_file=args.csv_file, min_atom=args.min_atom,
                  max_atom=args.max_atom, num_cpus=args.num_cpus, mol_save_dir=args.mol_save_dir,
                  resolution=args.resolution, blur_sigma=args.blur_sigma, use_motion_blur=args.use_motion_blur,
-                 use_gaussian_noise=args.use_gaussian_noise, gen_original_img=args.gen_original_img, img_show=False,
+                 use_gaussian_noise=args.use_gaussian_noise, gen_original_img=args.gen_original_img, gen_mol_drawing=args.gen_mol_drawing,
+                 img_show=False,
                  train_ratio=args.train_ratio, val_ratio=args.val_ratio, test_ratio=args.test_ratio,
                  split_seed=args.split_seed,
                  development=args.development)

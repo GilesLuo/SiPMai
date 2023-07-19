@@ -91,6 +91,16 @@ from SimpTM.gen_data.gen_all_data_pipeline import gen_all
 gen_all_data(many_args)   # generate with user-defined arguments
 ```
 
+### I get `MemoryError: Unable to allocate internal buffer.`
+
+This is typically because our code, by default, use all your CPU cores for generation. You're trying to serialize is too large to fit into memory, or if your system is running low on available memory.
+
+A simple fix is to set `num_cpus` properly. For example, you may use
+
+```
+generate_pubchem --num_cpus 4
+```
+
 ### Loading Data
 
 We also provide a Pytorch DataLoader template to load the generated datasets. Details please refer to `SiPMai/utils/dataloader`.

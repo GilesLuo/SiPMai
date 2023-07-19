@@ -18,12 +18,13 @@ ENABLE_MAYAVI = False
 
 @ray.remote
 def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir, json_dir, img_dir,
-                         blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img=True,
+                         blur_sigma, use_motion_blur, use_gaussian_noise,
+                         gen_original_img, gen_mol_drawing,
                          show=False):
     """
     generate 5 files for each molecule:
     1. img_dir/img.png:                 the image of the molecule with gaussian noise (for simulating electron cloud)
-    2. img_dir/orig_img.png:            the image of the molecule without noise, calculated from the 2D coordinates
+    2. img_dir/orig_img.png:            binary image of the molecule (only for human inspection)
     3. info_dir/points_info.npz:   -- atom instance binary array, shape: (num_atom, resolution, resolution)
                                          -- bond instance binary array, shape: (num_bond, resolution, resolution)
                                          -- adjacency matrix, shape: (num_atom, num_atom)
@@ -49,9 +50,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
 
     #         2D molecules were converted into 3D structures,
     #         and mechanical functions were used for Angle correction and optimization
-    smile_dict = {}
     mol_2D = Chem.MolFromSmiles(smi)
-    smile_dict['smile'] = smi
     mol_2D_H = Chem.AddHs(mol_2D)
     atom_num = mol_2D_H.GetNumAtoms()
     bond_num = mol_2D_H.GetNumBonds()
@@ -64,65 +63,62 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     mol_2D_H = Chem.MolFromMolBlock(moleblock_2D, removeHs=False)
     conf = mol_2D_H.GetConformer()
 
-    atom_position = []
+    atom_position = np.zeros((atom_num, 5), dtype=np.float32)
     atom_radius = {'C': 0.77, 'H': 0.37, 'O': 0.73, 'S': 1.02, 'N': 0.75, 'P': 1.06, 'Cl': 0.99}
-    atom_class = {'0.77': 1, '0.37': 2, '0.73': 3, '1.02': 4, '0.75': 5, '1.06': 6, '0.99': 7}
     for s in range(atom_num):
-        x = list(conf.GetAtomPosition(s))
-        mol_2D_H.GetAtomWithIdx(s).SetProp('molAtomMapNumber', str(mol_2D_H.GetAtomWithIdx(s).GetIdx()))  # 对原子进行索引
+        mol_2D_H.GetAtomWithIdx(s).SetProp('molAtomMapNumber', str(mol_2D_H.GetAtomWithIdx(s).GetIdx()))
         atom_symbol = mol_2D_H.GetAtoms()[s].GetSymbol()
+        # get x, y, z, r
         if atom_symbol in atom_radius.keys():
-            x.append(atom_radius[atom_symbol])
+            atom_position[s, 3] = atom_radius[atom_symbol]
         else:
             raise NotImplementedError("only support C, H, O, S, N, P, Cl")
-        x.append(mol_2D_H.GetAtomWithIdx(s).GetIdx())
-        atom_position.append(x)
-    Draw.MolToFile(mol_2D_H, drawing_name, size=(600, 600))
+        atom_position[s, :3] = list(conf.GetAtomPosition(s))
+        atom_position[s, 4] = mol_2D_H.GetAtomWithIdx(s).GetIdx()  # atom index
 
-    points = np.array(atom_position)
-    x, y, z, r = points[:, 0], points[:, 1], points[:, 2], points[:, 3]
-    r_max = max(r)
-    x_max, x_min, y_max, y_min = int(max(x) + r_max) + 1, int(min(x) - r_max) - 1, int(max(y) + r_max) + 1, int(
-        min(y) - r_max) - 1
-    z_min = int(min(z) - r_max) - 1
+    # save drawing
+    if gen_mol_drawing:
+        Draw.MolToFile(mol_2D_H, drawing_name, size=(600, 600))
 
-    # Build the matrix to start recording the height
-    points_initial = np.zeros([resolution, resolution])  # initialize
-    points_class = np.zeros([resolution, resolution])
-    # Initializes the bool matrix that stores the atoms
-    points_bool = np.zeros([atom_num, resolution, resolution])
-    points_bond_bool = np.zeros([bond_num, resolution, resolution])
+    # get image boundaries
+    x, y, z, r = atom_position[:, 0], atom_position[:, 1], atom_position[:, 2], atom_position[:, 3]
+    r_max = r.max()
+    x_max, x_min, y_max, y_min = int(x.max() + r_max) + 1, int(x.min() - r_max) - 1, int(y.max() + r_max) + 1, int(
+        y.min() - r_max) - 1
+    z_min = int(z.min() - r_max) - 1  # doesn't really matter
+
+    # get x, y mesh
+    points_bond_bool = np.zeros([bond_num, resolution, resolution], dtype=bool)
     x_axes = np.linspace(x_min, x_max, resolution)
     y_axes = np.linspace(y_min, y_max, resolution)
     X, Y = np.meshgrid(x_axes, y_axes)
     coordinate_points = np.array([X.ravel(), Y.ravel()])
-    coordinate_points_array = coordinate_points.T
-    coordinate_points_array = np.array(coordinate_points_array).reshape((resolution, resolution, 2))
+    mesh = coordinate_points.T
+    mesh = np.array(mesh).reshape((resolution, resolution, 2))
 
     '''
     Start to calculate the height of each atom in the molecule from the base plane. At this time, 
     the base plane is set as the xoy plane, and the virtual projection is made from top to bottom through 
     the point light source cluster, that is, the height of the highest atom contacted is taken as the height recorded
     '''
-    points_initial, points_bool, points_class = cal_atom_projection(atom_position, coordinate_points_array,
-                                                                    resolution,
-                                                                    points_bool,
-                                                                    points_initial, points_class, atom_class, z_min)
-    points_class = np.where(points_class == 0, 255, points_class)
-
+    height_mesh, atom_mask, is_coincide = cal_atom_projection(atom_position, mesh, z_min)
+    # if is_coincide.any():
+    #     raise ValueError("atom coincide")
     if gen_original_img:
-        im = Image.fromarray(points_class[::-1, :])
+        orig_arr = atom_mask.sum(axis=0)
+        orig_arr[orig_arr > 0] = 255
+        im = Image.fromarray(orig_arr[::-1, :])
         im = im.convert('L')
         im.save(orig_img_name)
 
     # get blurred image
-    points_initial = gaussian_filter(points_initial, sigma=blur_sigma)
+    height_mesh = gaussian_filter(height_mesh, sigma=blur_sigma)
     if use_motion_blur:
-        points_initial = motion_blur(points_initial)
+        height_mesh = motion_blur(height_mesh)
     if use_gaussian_noise:
-        points_initial = uniform_noise(points_initial)
+        height_mesh = uniform_noise(height_mesh)
     plt.figure(figsize=(resolution, resolution), dpi=1)
-    plt.imshow(points_initial, cmap='gray', origin='lower')
+    plt.imshow(height_mesh, cmap='gray', origin='lower')
     plt.axis('off')
     fig = plt.gcf()
     plt.gca().xaxis.set_major_locator(plt.NullLocator())
@@ -132,28 +128,30 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     fig.savefig(img_name, format='png')
     plt.close()
 
-    bond_list = [[] for i in range(bond_num)]
+    # get adjacent matrix
+    bonds = mol_2D_H.GetBonds()  # To traverse the key
     molecule_adjacent_matrix = np.zeros((atom_num, atom_num), dtype=np.bool_)
     bond_record_dic = {}
-    bonds = mol_2D_H.GetBonds()  # To traverse the key
-    for bond_i in range(bond_num):
-        bond_list[bond_i].append(bonds[bond_i].GetIdx())
-        atom_begin_index = bonds[bond_i].GetBeginAtomIdx()
-        atom_end_index = bonds[bond_i].GetEndAtomIdx()
-        bond_record_dic[f'bond-{bond_i}'] = str(atom_begin_index) + str(atom_end_index)
-        molecule_adjacent_matrix[atom_begin_index][atom_end_index] = 1
-        molecule_adjacent_matrix[atom_end_index][atom_begin_index] = 1
-        for t in atom_position:
-            if t[4] == atom_begin_index or t[4] == atom_end_index:
-                bond_list[bond_i].append(t[0])
-                bond_list[bond_i].append(t[1])
-                bond_list[bond_i].append(t[3])
+    bond_list = [[bond.GetIdx()] for bond in bonds]
 
-    points_bond_bool = bond_location_cal(bond_list, coordinate_points_array, points_bond_bool, resolution)
+    for bond_i, bond in enumerate(bonds):
+        atom_begin_index = bond.GetBeginAtomIdx()
+        atom_end_index = bond.GetEndAtomIdx()
+        bond_key = f"{atom_begin_index}-{atom_end_index}"
+        bond_record_dic[bond_key] = bond_i
+        molecule_adjacent_matrix[atom_begin_index, atom_end_index] = 1
+        molecule_adjacent_matrix[atom_end_index, atom_begin_index] = 1
+
+        matching_positions = atom_position[
+            (atom_position[:, 4] == atom_begin_index) | (atom_position[:, 4] == atom_end_index)]
+        bond_list[bond_i].extend(matching_positions[:, [0, 1, 3]].ravel().tolist())
+
+    # get bond mask in the image
+    points_bond_bool = bond_location_cal(bond_list, mesh, points_bond_bool, resolution)
 
     # save np.array
 
-    arr_atom = np.array(points_bool, dtype=bool)
+    arr_atom = np.array(atom_mask, dtype=bool)
     arr_bond = np.array(points_bond_bool, dtype=bool)
 
     arr_atom_compressed = compress_binary_arr(arr_atom)
@@ -164,17 +162,20 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
                         arr_atom=arr_atom_compressed, arr_bond=arr_bond_compressed, adj_matrix=adj_matrix_compressed,
                         arr_atom_shape=arr_atom.shape, arr_bond_shape=arr_bond.shape,
                         adj_shape=molecule_adjacent_matrix.shape,
-                        molecule_points_height=points_initial)
-
-    json_information = [bond_record_dic, smile_dict]
-    with open(json_name, 'w', encoding='utf-8') as f:
-        json.dump(json_information, f)
+                        molecule_points_height=height_mesh)
+    try:
+        with open(json_name, 'w', encoding='utf-8') as f:
+            json.dump({"bond_dict": bond_record_dic, "smiles": smi}, f)
+    except Exception as e:
+        # to avoid the error of json.dump, remove the file if an exception occurs
+        os.remove(json_name)
+        raise ValueError("something wrong with json.dump. Json file removed to avoid saving broken files")
     return True
 
 
-def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img,
-                 num_cpu=None, show=False):
-    ray.init(num_cpus=num_cpu)
+def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img=False, gen_mol_drawing=False,
+                 num_cpu=None, show=False, debug_mode=False):
+    ray.init(num_cpus=num_cpu, local_mode=debug_mode)
 
     # prepare folders
     info_dir = os.path.join(save_dir, "info")
@@ -187,7 +188,8 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
     tasks = {}
     for mol, smiles in mol_dict.items():
         task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
-                                              blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img, show)
+                                              blur_sigma, use_motion_blur, use_gaussian_noise,
+                                              gen_original_img, gen_mol_drawing, show)
         tasks[task_id] = mol
 
     pbar = tqdm(total=len(tasks), desc="Processing tasks")
@@ -211,7 +213,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--smiles_file", type=str, default="../data/pubchem_smiles.json")
+    parser.add_argument("--smiles_file", type=str, default="../smiles/pubchem_39_200_100k.json")
     parser.add_argument("--save_dir", type=str, default="../data")
     parser.add_argument("--resolution", type=int, default=256)
     parser.add_argument("--blur_sigma", type=int, default=24)
@@ -223,4 +225,4 @@ if __name__ == "__main__":
         mol_dict = json.load(f)
     # start generation
     ray_gen_main(mol_dict, args.save_dir,
-                 args.resolution, args.blur_sigma, args.use_motion_blur, args.use_gaussian_noise, args.show)
+                 args.resolution, args.blur_sigma, args.use_motion_blur, args.use_gaussian_noise, args.show, num_cpu=2)
