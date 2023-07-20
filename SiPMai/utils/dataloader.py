@@ -47,15 +47,13 @@ class MoleculeDataset(Dataset):
                 k, s = 'arr_atom', 'arr_atom_shape'
             elif key == "arr_bond":
                 k, s = 'arr_bond', 'arr_bond_shape'
-            elif key == "adj_matrix":
-                k, s = 'adj_matrix', 'adj_shape'
             else:
                 raise NotImplementedError
             arr, arr_shape = data[k], data[s]
             arr = np.unpackbits(arr)
             arr = arr.reshape(arr_shape)
             return arr
-        elif key in ["adj_matrix" "molecule_points_height"]:
+        elif key in ["adj_matrix", "molecule_points_height"]:
             return data[key]
         else:
             raise KeyError
