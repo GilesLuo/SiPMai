@@ -6,7 +6,7 @@ from tqdm import tqdm
 import time
 from rdkit import Chem
 from rdkit.Chem import Draw
-from SiPMai.gen_data.util_fn import uniform_noise, motion_blur, compress_binary_arr
+from SiPMai.gen_data.util_fn import uniform_noise, motion_blur, compress_binary_arr, decompress_binary_arr
 from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
@@ -105,7 +105,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     the base plane is set as the xoy plane, and the virtual projection is made from top to bottom through 
     the point light source cluster, that is, the height of the highest atom contacted is taken as the height recorded
     '''
-    height_mesh, atom_mask, is_coincide = cal_atom_projection(atom_position, mesh, z_min)
+    height_mesh, atom_mask, _ = cal_atom_projection(atom_position, mesh, z_min, get_coincidence=False)
     # if is_coincide.any():
     #     raise ValueError("atom coincide")
     if gen_original_img:
@@ -160,12 +160,9 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
 
     arr_atom_compressed = compress_binary_arr(arr_atom)
     arr_bond_compressed = compress_binary_arr(arr_bond)
-    adj_matrix_compressed = compress_binary_arr(molecule_adjacent_matrix)
 
     np.savez_compressed(points_info_name,
-                        arr_atom=arr_atom_compressed, arr_bond=arr_bond_compressed, adj_matrix=adj_matrix_compressed,
-                        arr_atom_shape=arr_atom.shape, arr_bond_shape=arr_bond.shape,
-                        adj_shape=molecule_adjacent_matrix.shape,
+                        arr_atom=arr_atom_compressed, arr_bond=arr_bond_compressed, adj_matrix=molecule_adjacent_matrix,
                         molecule_points_height=height_mesh)
     try:
         with open(json_name, 'w', encoding='utf-8') as f:

@@ -46,7 +46,6 @@ def decompress_binary_arr(npz_filename):
 
     arr_atom_shape = data['arr_atom_shape']
     arr_bond_shape = data['arr_bond_shape']
-    adj_shape = data['adj_shape']
 
     # """Decompress an int8 array back to a binary tensor"""
     arr_atom = np.unpackbits(arr_atom)
@@ -55,6 +54,4 @@ def decompress_binary_arr(npz_filename):
     arr_bound = np.unpackbits(arr_bound)
     arr_bound = arr_bound.reshape(arr_bond_shape)
 
-    adj_matrix = np.unpackbits(adj_matrix)
-    adj_matrix = adj_matrix.reshape(adj_shape)
     return arr_atom, arr_bound, adj_matrix, molecule_points_height

@@ -5,7 +5,7 @@ from numba import jit, njit
 from numba.typed import List
 
 
-def cal_atom_projection(atom_position, mesh, z_min):
+def cal_atom_projection(atom_position, mesh, z_min, get_coincidence=False):
     """
     :param atom_position: n_atom (x, y, z, r, ) of the atom
     :param mesh: [H, W, 2] mesh grid of x, y axes
@@ -54,7 +54,8 @@ def cal_atom_projection(atom_position, mesh, z_min):
     xyzr, atom_class = atom_position[:, :4], atom_position[:, 4]
     height_all_atom = compute_height_matrix(xyzr, mesh)
     height = np.max(height_all_atom, axis=0)
-    is_coincide = check_coincidence(height_all_atom)
+
+    is_coincide = check_coincidence(height_all_atom) if get_coincidence else None
     atom_mask = height_all_atom > 0
     return height + z_min, atom_mask, is_coincide
 
