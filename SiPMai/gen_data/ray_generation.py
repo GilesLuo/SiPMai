@@ -42,10 +42,14 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
         raise NotImplementedError("show is not implemented for ray version")
 
     # check done
-    if os.path.exists(points_info_name) and os.path.exists(img_name) and os.path.exists(
-            orig_img_name) and os.path.exists(
-        drawing_name) and os.path.exists(json_name):
-        print(f"molecule {molecule_name} exists, skip")
+    check_list = [img_name, points_info_name, json_name]
+    if gen_original_img:
+        check_list.append(orig_img_name)
+    if gen_mol_drawing:
+        check_list.append(drawing_name)
+    done = np.array([os.path.exists(file) for file in check_list])
+    if done.all():
+        print("molecule already exists, skipping...")
         return True
 
     #         2D molecules were converted into 3D structures,
@@ -107,7 +111,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     if gen_original_img:
         orig_arr = atom_mask.sum(axis=0)
         orig_arr[orig_arr > 0] = 255
-        im = Image.fromarray(orig_arr[::-1, :])
+        im = Image.fromarray(orig_arr.astype(np.uint8))
         im = im.convert('L')
         im.save(orig_img_name)
 
