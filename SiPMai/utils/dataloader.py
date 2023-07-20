@@ -42,7 +42,7 @@ class MoleculeDataset(Dataset):
         # Loading compressed data and decompressing it
         data = np.load(npz_file)
 
-        if key in ["arr_atom", "arr_bond", "adj_matrix"]:
+        if key in ["arr_atom", "arr_bond"]:
             if key == "arr_atom":
                 k, s = 'arr_atom', 'arr_atom_shape'
             elif key == "arr_bond":
@@ -55,8 +55,8 @@ class MoleculeDataset(Dataset):
             arr = np.unpackbits(arr)
             arr = arr.reshape(arr_shape)
             return arr
-        elif key == "molecule_points_height":
-            return data['molecule_points_height']
+        elif key in ["adj_matrix" "molecule_points_height"]:
+            return data[key]
         else:
             raise KeyError
 

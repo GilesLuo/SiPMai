@@ -163,6 +163,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
 
     np.savez_compressed(points_info_name,
                         arr_atom=arr_atom_compressed, arr_bond=arr_bond_compressed, adj_matrix=molecule_adjacent_matrix,
+                        arr_atom_shape=arr_atom.shape, arr_bond_shape=arr_bond.shape,
                         molecule_points_height=height_mesh)
     try:
         with open(json_name, 'w', encoding='utf-8') as f:
