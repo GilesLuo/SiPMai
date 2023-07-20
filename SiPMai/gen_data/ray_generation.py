@@ -111,7 +111,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     if gen_original_img:
         orig_arr = atom_mask.sum(axis=0)
         orig_arr[orig_arr > 0] = 255
-        im = Image.fromarray(orig_arr.astype(np.uint8))
+        im = Image.fromarray(orig_arr[::-1, :].astype(np.uint8))
         im = im.convert('L')
         im.save(orig_img_name)
 
