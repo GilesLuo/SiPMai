@@ -86,8 +86,8 @@ def main() -> None:
     parser.add_argument("--mol_save_dir", type=str, default="pubchem_39_200_100k",
                         help="The directory where the generated data should be saved.")
 
-    parser.add_argument("--resolution", type=int, default=512, help="The resolution of the generated images.")
-    parser.add_argument("--blur_sigma", type=int, default=34,
+    parser.add_argument("--resolution", type=int, default=256, help="The resolution of the generated images.")
+    parser.add_argument("--blur_sigma", type=int, default=16,
                         help="The sigma value for the Gaussian blur applied to the images.")
     parser.add_argument("--use_motion_blur", type=bool, default=False, help="Whether to use motion blur in the images.")
     parser.add_argument("--use_gaussian_noise", type=bool, default=False,
