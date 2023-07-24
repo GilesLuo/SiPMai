@@ -59,7 +59,11 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     atom_num = mol_2D_H.GetNumAtoms()
     bond_num = mol_2D_H.GetNumBonds()
 
-    moleblock_2D = Chem.MolToMolBlock(mol_2D_H)  # Returns the two-dimensional coordinates of the atoms in the molecule
+    try:
+        moleblock_2D = Chem.MolToMolBlock(mol_2D_H)  # Returns the two-dimensional coordinates of the atoms in the molecule
+    except Chem.rdchem.KekulizeException:
+        print("kekulize failed, molecule: ", molecule_name, ", skip...")
+        return False
     if show:
         mol_3D = Chem.MolFromSmiles(smi)
         Draw.ShowMol(mol_3D, size=(550, 550), kekulize=False)
