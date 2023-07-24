@@ -1,26 +1,78 @@
 import json
 import pandas as pd
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader, Sampler
-from typing import Tuple, List, Iterator
+from typing import Tuple, List, Iterator, Union, Optional, Dict
 from random import Random
 import threading
 import os
+from PIL import Image
+from SiPMai.utils.img_transform import build_transform
+from torchvision import transforms
 
 class MoleculeDataset(Dataset):
-    def __init__(self, dataset_json, transform=None, **kwargs):
-        with open(dataset_json, "r") as f:
-            self.data_index = json.load(f)
-        self.data_dir = "/".join(dataset_json.split("/")[:-1])  # assume dataset json is at the root data dir
+    def __init__(self, data_index, data_dir, modals: List[str], image_transform=None, graph_transform=None, **kwargs):
+        if not (set(modals).issubset({"img", "graph", "smiles", "instruction"}) and modals):
+            raise ValueError("modals must be a subset of {'img', 'graph', 'smiles', 'instruction'}")
+        self.modals = modals
+        self.data_index = data_index
+        self.data_dir = data_dir
         self.cid = list(self.data_index.keys())
         self.img_files = self.get_directory(self.data_dir, "img")
         self.info_files = self.get_directory(self.data_dir, "info")
         self.json_files = self.get_directory(self.data_dir, "json")
+        self.image_transform = image_transform
+        self.graph_transform = graph_transform
 
-        self._batch_Molecule = None
+        self._batch_molecule = None
 
     def batch_Molecule(self):
-        raise NotImplementedError
+        if self._batch_molecule is None: # cache the batch data to avoid repeatedly doing the featurization
+            mol_graphs = []
+            mol_adjs = []
+            mol_imgs = []
+            mol_instructions = []
+            labels = []
+
+            for cid, mol_smile, imgs_id in zip(self.cid, self.json_files, self.img_files):
+                if "img" in self.modals:
+                    img = Image.open(imgs_id)
+                    mol_imgs.append(img)
+                else:
+                    mol_imgs.append(None)
+                if "graph" in self.modals:
+                    raise NotImplementedError
+                else:
+                    mol_imgs.append(None)
+                if "instruction" in self.modals:  # provide a random instruction on the bond and atom with label
+                    # randomly pick atom_idx and bond_idx on the molecule
+                    # atom_idx = np.random.randint(0, len(mol_smile))
+                    # bond_idx = np.random.randint(0, len(mol_smile))
+                    # self.create_mask(mol_smile, atom_idx, bond_idx)
+                    raise NotImplementedError
+                else:
+                    mol_imgs.append(None)
+                if "smiles" in self.modals:
+                    # mol_graph = MolGraph(mol_smile)
+                    # mol_graphs.append(mol_graph)
+                    raise NotImplementedError
+                else:
+                    mol_imgs.append(None)
+
+            #     mol_graph = MolGraph(mol_smile)
+            #     mol_graphs.append(mol_graph)
+            #     if self.img_directory == None:
+            #         mol_imgs.append(torch.rand(26, 26))
+            #     else:
+            #         pass
+            #     if self.instruction_directory == None:
+            #         mol_instructions.append(torch.rand(26, 26))
+            #     labels.append(label)
+            #
+            # self.batch_mol_graph = [BatchMolGraph(mol_graphs)] # The required type of input of molecule model is List[BatchMolGraph]
+            self._batch_molecule = [mol_imgs, mol_graphs, mol_adjs, mol_instructions, labels] # a list of four lists
+        return self._batch_molecule
 
     def get_directory(self, root_dir, key):
         if not key in ["img", "json", "info"]:
@@ -42,29 +94,64 @@ class MoleculeDataset(Dataset):
         # Loading compressed data and decompressing it
         data = np.load(npz_file)
 
-        if key in ["arr_atom", "arr_bond"]:
+        if key in ["arr_atom", "arr_bond", "adj_matrix"]:
             if key == "arr_atom":
                 k, s = 'arr_atom', 'arr_atom_shape'
+                arr, arr_shape = data[k], data[s]
+                arr = np.unpackbits(arr)
+                arr = arr.reshape(arr_shape)
+                return arr
             elif key == "arr_bond":
                 k, s = 'arr_bond', 'arr_bond_shape'
+                arr, arr_shape = data[k], data[s]
+                arr = np.unpackbits(arr)
+                arr = arr.reshape(arr_shape)
+                return arr
+            elif key == "adj_matrix":
+                k = 'adj_matrix'
+                arr = data[k].astype(int)
+                return arr
             else:
                 raise NotImplementedError
-            arr, arr_shape = data[k], data[s]
-            arr = np.unpackbits(arr)
-            arr = arr.reshape(arr_shape)
-            return arr
-        elif key in ["adj_matrix", "molecule_points_height"]:
-            return data[key]
+
+        elif key == "molecule_points_height":
+            return data['molecule_points_height']
         else:
             raise KeyError
 
+    def create_mask(self, cid, atom_idx: Optional[Union[int, List[int]]]=None,
+                    bond_idx: Optional[Union[int, List[int]]]=None):
+        """
+        create a binary mask from the 3D bool array in the info.npz file
+        atom_idx and bond_idx cannot be None at the same time.
+        intersection of atom and bond mask is allowed.
+        :return: a binary mask with the same H, W as the 3D bool array
+        """
+
+        if atom_idx is None and bond_idx is None:
+            raise ValueError("atom_idx and bond_idx cannot be None at the same time")
+        else:
+            atom_mask, bond_mask = 0, 0
+            if atom_idx is not None:
+                arr = self.get_info(self.info_files[cid], "arr_atom")
+                atom_mask = arr[atom_idx, :, :]
+            if bond_idx is not None:
+                arr = self.get_info(self.info_files[cid], "arr_bond")
+                bond_mask = arr[bond_idx, :, :]
+
+            return (atom_mask + bond_mask) > 0
     def __len__(self):
-        return len(self._data)
+        return len(self.cid)
 
     def __getitem__(self, idx):
-
-        return self._data[idx]  # a tuple with four elements
-
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        mol_img, mol_graph, mol_adj, mol_instruction, label = self._batch_molecule[0][idx]
+        if self.image_transform:
+            mol_img = self.image_transform(mol_img)
+        if self.graph_transform:
+            raise NotImplementedError
+        return mol_img, mol_graph, mol_adj, mol_instruction, label
 
 
 def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
@@ -73,6 +160,15 @@ def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
     data.batch_Molecule()  # Forces computation of the _batch_Molecule
 
     return data  # a MoleculeDataset with only a batch size
+
+
+# def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
+#     '''just for test'''
+#     data = MoleculeDataset("D:\\project\\pretrain_imgsl\\Molsurge\\pubchem_39_200_100k\\train_set_index.json")
+#     # Re-initialize a small MoleculeDataset object with the batch of data
+#     data.batch_Molecule()  # Forces computation of the _batch_Molecule
+#
+#     return data  # a MoleculeDataset with only a batch size
 
 
 class MoleculeSampler(Sampler):
@@ -115,7 +211,7 @@ class MoleculeDataLoader(DataLoader):
 
     def __init__(self,
                  dataset: MoleculeDataset,
-                 batch_size: int = 50,
+                 batch_size: int = 4,
                  num_workers: int = 8,
                  shuffle: bool = False,
                  seed: int = 0):
@@ -165,12 +261,32 @@ class MoleculeDataLoader(DataLoader):
 
 
 if __name__ == '__main__':
-    # Test the data loader
+    # build transform
+    input_size = (224, 224)
+    auto_augment = True
+    interpolation = transforms.InterpolationMode.BILINEAR
+    mean = (0.485, 0.456, 0.406)
+    std = (0.229, 0.224, 0.225)
+    horizontal_flip_prob = 0.2
+    vertical_flip_prob = 0.2
+    rotation_range = 15
+    affine_translate = (0.1, 0.1)
+    erase_prob = 0.
+    train_transform = build_transform("train", input_size, auto_augment, interpolation, mean, std,horizontal_flip_prob,
+                                      vertical_flip_prob, rotation_range, translate=affine_translate, erase_prob=erase_prob)
 
-    dataset = MoleculeDataset("../pubchem_39_200_100k/train_set_index.json")
-    # dataloader = MoleculeDataLoader(dataset)
-    # print('cool')
-    # for batch in dataloader:
-    #     mol_imgs, batch_mol_graph, mol_instructions, labels = batch.batch_Molecule()
-    #     print(batch_mol_graph[0].a_scope)
-    #     print('cool')
+    # Test the data loader
+    dataset_json = "../../pubchem_39_200_100k/train_set_index.json"
+    with open(dataset_json, "r") as f:
+        data_index = json.load(f)
+    data_dir =  "../../pubchem_39_200_100k/"
+    dataset = MoleculeDataset(data_index, data_dir, transform=train_transform, modals=['img'])
+
+    dataloader = MoleculeDataLoader(dataset, num_workers=0, batch_size=2, shuffle=True)
+
+
+
+    print('cool')
+    for batch in dataloader:
+        mol_imgs, smiles, labels, batch_mol_graph = batch.batch_Molecule()
+        print('cool')
