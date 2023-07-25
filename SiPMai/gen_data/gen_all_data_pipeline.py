@@ -4,6 +4,7 @@ from SiPMai.gen_data.prepare_dataset import gen_index_main
 import os
 import json
 from typing import Dict
+from SiPMai.utils.dataloader import get_dataset_mean_std
 
 
 def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, max_atom: int, num_cpus: int,
@@ -11,6 +12,7 @@ def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, m
                  resolution: int, blur_sigma: int, use_motion_blur: bool, use_gaussian_noise: bool,
                  gen_original_img: bool, gen_mol_drawing:bool, img_show: bool,
                  train_ratio: float, val_ratio: float, test_ratio: float, split_seed: int,
+                 redo_mean_std:bool, mean_std_batch_size:int,
                  development: bool = False) -> None:
     """
     Generate all data required for the molecular images.
@@ -59,7 +61,8 @@ def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, m
                  resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img, gen_mol_drawing,
                  num_cpus, img_show, development)
     gen_index_main(mol_save_dir, train_ratio, val_ratio, test_ratio, split_seed)
-
+    get_dataset_mean_std(mol_save_dir, redo=redo_mean_std, num_workers=num_cpus, batch_size=mean_std_batch_size
+                            )
 
 def main() -> None:
     """
@@ -102,6 +105,10 @@ def main() -> None:
     parser.add_argument("--train_ratio", type=float, default=0.8, help="The ratio of data to be used for training.")
     parser.add_argument("--val_ratio", type=float, default=0.1, help="The ratio of data to be used for validation.")
     parser.add_argument("--test_ratio", type=float, default=0.1, help="The ratio of data to be used for testing.")
+
+    # compute mean and std args
+    parser.add_argument("--redo", type=bool, default=False, help="Whether to redo the mean and std computation.")
+    parser.add_argument("--batch_size", type=int, default=256, help="The batch size to be used for mean and std computation.")
     args = parser.parse_args()
 
     from pkg_resources import resource_filename
@@ -115,7 +122,7 @@ def main() -> None:
                  use_gaussian_noise=args.use_gaussian_noise, gen_original_img=args.gen_original_img, gen_mol_drawing=args.gen_mol_drawing,
                  img_show=False,
                  train_ratio=args.train_ratio, val_ratio=args.val_ratio, test_ratio=args.test_ratio,
-                 split_seed=args.split_seed,
+                 split_seed=args.split_seed, mean_std_batch_size=args.batch_size, redo_mean_std=args.redo,
                  development=args.development)
 
 

@@ -10,7 +10,7 @@ import os
 from PIL import Image
 from SiPMai.utils.img_transform import train_transform, val_transform, test_transform
 from torchvision import transforms
-
+from tqdm.auto import tqdm
 
 class MoleculeDataset(Dataset):
     data_dir = "../../pubchem_39_200_100k/"
@@ -131,6 +131,25 @@ class MoleculeDataset(Dataset):
 
             return (atom_mask + bond_mask) > 0
 
+    def compute_global_mean_std(self, num_workers=0, batch_size=128,):
+        n = 0
+        s = np.zeros(3)
+        s2 = np.zeros(3)
+        x = np.empty((512, 512, 3), dtype=np.uint8)
+        dataloader = MoleculeDataLoader(self, num_workers=num_workers, batch_size=batch_size, shuffle=False)
+
+        for batch in tqdm((dataloader), desc='Computing mean and std in a running fashion '):
+            mol_imgs, _, _, _, _, _ = batch.batch_Molecule()
+            x[:] = np.array(mol_imgs) / 255.  # Scale pixel values to [0, 1]
+            s += x.sum(axis=(0, 1))
+            s2 += np.sum(np.square(x), axis=(0, 1))
+            n += x.shape[0] * x.shape[1]
+
+        mean = s / n
+        std = np.sqrt((s2 / n) - np.square(mean))
+
+        return mean, std
+
     def __len__(self):
         return len(self._data)
 
@@ -233,6 +252,25 @@ class MoleculeDataLoader(DataLoader):
     def __iter__(self) -> Iterator[MoleculeDataset]:
         r"""Creates an iterator which returns :class:`MoleculeDataset`\ s"""
         return super(MoleculeDataLoader, self).__iter__()
+
+
+def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
+    # check the mean and std of the dataset, if not exist, calculate them, otherwise load them
+
+    file_path = os.path.join(data_dir, "image_stats.json")
+    if os.path.exists(file_path) and not redo:
+        print("loading pre-calculated mean and std... for {}".format(data_dir))
+        with open(file_path, "r") as f:
+            stats = json.load(f)
+        mean = stats['mean']
+        std = stats['std']
+    else:
+        dataset = MoleculeDataset(data_dir)
+        mean, std = dataset.compute_global_mean_std(num_workers=0, batch_size=128,)
+        stats = {'mean': mean.tolist(), 'std': std.tolist()}
+        with open(file_path, "w") as f:
+            json.dump(stats, f)
+    return mean, std
 
 
 if __name__ == '__main__':
