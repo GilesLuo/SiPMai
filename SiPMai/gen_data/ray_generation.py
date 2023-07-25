@@ -179,20 +179,77 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     return True
 
 
+@ray.remote
+def check_cid(cid, info_dir, json_dir, img_dir):
+    img_path = os.path.join(img_dir, f'{cid}_img.png')  # drawing not checked
+    json_path = os.path.join(json_dir, f'{cid}.json')
+    npz_path = os.path.join(info_dir, f'{cid}_points_info.npz')
+
+    # Checking the existence of files
+    img_exists = os.path.isfile(img_path)
+    json_exists = os.path.isfile(json_path)
+    npz_exists = os.path.isfile(npz_path)
+
+    # Checking the validity of the JSON file
+    json_valid = False
+    if json_exists:
+        try:
+            with open(json_path, 'r') as json_file:
+                json.load(json_file)
+            json_valid = True
+        except Exception:
+            pass
+
+    return cid, img_exists, json_exists, json_valid, npz_exists
+
+def get_task(molecule_dict, info_dir, json_dir, img_dir):
+    task_dict = {}
+    broken_dict = {}
+    done_dict = {}
+
+    # Parallelize the check_cid task with ray
+    ray.init()
+    futures = [check_cid.remote(cid, info_dir, json_dir, img_dir) for cid in molecule_dict.keys()]
+    for i in tqdm(range(len(futures)), desc='Checking generated files'):
+        result = ray.get(futures[i])
+        # result = futures[i]
+        cid, img_exists, json_exists, json_valid, npz_exists = result
+        if img_exists and json_exists and json_valid and npz_exists:
+            done_dict[cid] = molecule_dict[cid]
+        elif img_exists or json_exists or npz_exists:
+            broken_dict[cid] = molecule_dict[cid]
+        else:
+            task_dict[cid] = molecule_dict[cid]
+    ray.shutdown()
+
+    return task_dict, broken_dict, done_dict
+
+
 def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img=False, gen_mol_drawing=False,
                  num_cpu=None, show=False, debug_mode=False):
-    ray.init(num_cpus=num_cpu, local_mode=debug_mode)
+
 
     # prepare folders
     info_dir = os.path.join(save_dir, "info")
     json_dir = os.path.join(save_dir, "json")
     img_dir = os.path.join(save_dir, "img")
+
+    if os.path.exists(save_dir):
+        tasks = {}
+        task_dict, broken_dict, done_dict = get_task(mol_dict, info_dir, json_dir, img_dir)
+    else:
+        tasks = {}
+        task_dict = mol_dict
+        broken_dict = {}
+        done_dict = {}
+    print(
+        f"{len(task_dict)} molecules to process, {len(broken_dict)} broken molecules (need to be regenerated), {len(done_dict)} done")
     os.makedirs(info_dir, exist_ok=True)
     os.makedirs(json_dir, exist_ok=True)
     os.makedirs(img_dir, exist_ok=True)
 
-    tasks = {}
-    for mol, smiles in mol_dict.items():
+    ray.init(num_cpus=num_cpu, local_mode=debug_mode)
+    for mol, smiles in task_dict.items():
         task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
                                               blur_sigma, use_motion_blur, use_gaussian_noise,
                                               gen_original_img, gen_mol_drawing, show)
