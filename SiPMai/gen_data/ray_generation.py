@@ -54,12 +54,11 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
 
     #         2D molecules were converted into 3D structures,
     #         and mechanical functions were used for Angle correction and optimization
-    mol_2D = Chem.MolFromSmiles(smi)
-    mol_2D_H = Chem.AddHs(mol_2D)
-    atom_num = mol_2D_H.GetNumAtoms()
-    bond_num = mol_2D_H.GetNumBonds()
-
     try:
+        mol_2D = Chem.MolFromSmiles(smi)
+        mol_2D_H = Chem.AddHs(mol_2D)
+        atom_num = mol_2D_H.GetNumAtoms()
+        bond_num = mol_2D_H.GetNumBonds()
         moleblock_2D = Chem.MolToMolBlock(mol_2D_H)  # Returns the two-dimensional coordinates of the atoms in the molecule
     except Chem.rdchem.KekulizeException:
         print("kekulize failed, molecule: ", molecule_name, ", skip...")
@@ -202,13 +201,13 @@ def check_cid(cid, info_dir, json_dir, img_dir):
 
     return cid, img_exists, json_exists, json_valid, npz_exists
 
-def get_task(molecule_dict, info_dir, json_dir, img_dir):
+def get_task(molecule_dict, info_dir, json_dir, img_dir, num_workers):
     task_dict = {}
     broken_dict = {}
     done_dict = {}
 
     # Parallelize the check_cid task with ray
-    ray.init()
+    ray.init(num_cpus=num_workers)
     futures = [check_cid.remote(cid, info_dir, json_dir, img_dir) for cid in molecule_dict.keys()]
     for i in tqdm(range(len(futures)), desc='Checking generated files'):
         result = ray.get(futures[i])
@@ -236,7 +235,7 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
 
     if os.path.exists(save_dir):
         tasks = {}
-        task_dict, broken_dict, done_dict = get_task(mol_dict, info_dir, json_dir, img_dir)
+        task_dict, broken_dict, done_dict = get_task(mol_dict, info_dir, json_dir, img_dir, num_cpu)
     else:
         tasks = {}
         task_dict = mol_dict
@@ -249,7 +248,7 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
     os.makedirs(img_dir, exist_ok=True)
 
     ray.init(num_cpus=num_cpu, local_mode=debug_mode)
-    for mol, smiles in task_dict.items():
+    for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
         task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
                                               blur_sigma, use_motion_blur, use_gaussian_noise,
                                               gen_original_img, gen_mol_drawing, show)
@@ -270,7 +269,7 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
 
     pbar.close()
     ray.shutdown()
-
+    return
 
 if __name__ == "__main__":
     import argparse
