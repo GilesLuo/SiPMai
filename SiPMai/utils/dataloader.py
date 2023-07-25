@@ -258,6 +258,7 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
     # check the mean and std of the dataset, if not exist, calculate them, otherwise load them
 
     file_path = os.path.join(data_dir, "image_stats.json")
+
     if os.path.exists(file_path) and not redo:
         print("loading pre-calculated mean and std... for {}".format(data_dir))
         with open(file_path, "r") as f:
@@ -265,8 +266,10 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
         mean = stats['mean']
         std = stats['std']
     else:
-        dataset = MoleculeDataset(data_dir)
-        mean, std = dataset.compute_global_mean_std(num_workers=0, batch_size=128,)
+        with open(os.path.join(data_dir, "train_set_index.json"), "r") as f:
+            data_index = json.load(f)
+        dataset = MoleculeDataset(list(data_index.values()))
+        mean, std = dataset.compute_global_mean_std(num_workers=num_workers, batch_size=batch_size)
         stats = {'mean': mean.tolist(), 'std': std.tolist()}
         with open(file_path, "w") as f:
             json.dump(stats, f)
