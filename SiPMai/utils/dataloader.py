@@ -9,19 +9,19 @@ from random import Random
 import threading
 import os
 from PIL import Image
+from torchvision import transforms
 from tqdm.auto import tqdm
 
 
+
 class MoleculeDataset(Dataset):
-    modals = ["img", "smiles", "instruction"]
-    # todo: still need root dir
-    data_dir = "D:\\mol_data\\SiPMai\\pubchem_39_200_100k"
+    modals = ["img", "graph", "smiles", "instruction"]
     image_transform = get_dummy_transform()
     graph_transform = None
-
     def __init__(self, data_index, **kwargs):
         self._data = data_index
         self._batch_molecule = None
+
 
     def batch_Molecule(self):
         if not (set(self.modals).issubset({"img", "graph", "smiles", "instruction"}) or not self.modals):
@@ -37,21 +37,14 @@ class MoleculeDataset(Dataset):
             labels = []
 
             for mol_dict in self._data:
-                # img_path = mol_dict["img_path"]
-                # label_path = img_path.replace("_img", "_orig_img")
-                # info_path = mol_dict["info_path"]
-                # json_path = mol_dict["json_path"]
-                img_path = os.path.join(self.data_dir, mol_dict["img_path"])
-                label_path = img_path.replace("_img", "_orig_img")
-                info_path = os.path.join(self.data_dir, mol_dict["info_path"])
-                json_path = os.path.join(self.data_dir, mol_dict["json_path"])
+                img_path = mol_dict["img_path"]
+                info_path = mol_dict["info_path"]
+                json_path = mol_dict["json_path"]
                 if "img" in self.modals:
                     img = Image.open(img_path).convert('RGB')
-                    label = Image.open(label_path).convert('L')
                     if self.image_transform is not None:
-                        img, label = self.image_transform(img, label)
+                        img = self.image_transform(img)
                     mol_imgs.append(img)
-                    labels.append(label.squeeze())
                 else:
                     mol_imgs.append(None)
                 if "graph" in self.modals:
@@ -60,20 +53,16 @@ class MoleculeDataset(Dataset):
                     mol_graphs.append(None)
                 if "instruction" in self.modals:  # provide a random instruction on the bond and atom with label
                     # randomly pick atom_idx and bond_idx on the molecule
-                    arr_atom = self.get_info(info_path, "arr_atom")
-                    arr_bond = self.get_info(info_path, "arr_bond")
-                    adj_matrix = self.get_info(info_path, "adj_matrix")
-                    atom_idx = np.random.randint(0, arr_atom.shape[0])
-                    bond_idx = np.random.randint(0, arr_bond.shape[0])
-                    instructions = self.create_mask(arr_atom, arr_bond, atom_idx, bond_idx)
-                    mol_instructions.append(instructions)
-                    mol_adjs.append(adj_matrix)
+                    # atom_idx = np.random.randint(0, len(mol_smile))
+                    # bond_idx = np.random.randint(0, len(mol_smile))
+                    # self.create_mask(mol_smile, atom_idx, bond_idx)
+                    raise NotImplementedError
                 else:
                     mol_instructions.append(None)
                 if "smiles" in self.modals:
-                    with open(json_path, "r") as f:
-                        mol_smile_dict = json.load(f)
-                    mol_smiles.append(mol_smile_dict["smiles"])
+                    # mol_graph = MolGraph(mol_smile)
+                    # mol_graphs.append(mol_graph)
+                    raise NotImplementedError
                 else:
                     mol_smiles.append(None)
 
@@ -122,7 +111,7 @@ class MoleculeDataset(Dataset):
         else:
             raise KeyError
 
-    def create_mask(self, arr_atom: np.ndarray, arr_bond: np.ndarray, atom_idx: Optional[Union[int, List[int]]] = None,
+    def create_mask(self, cid, atom_idx: Optional[Union[int, List[int]]] = None,
                     bond_idx: Optional[Union[int, List[int]]] = None):
         """
         create a binary mask from the 3D bool array in the info.npz file
@@ -136,11 +125,14 @@ class MoleculeDataset(Dataset):
         else:
             atom_mask, bond_mask = 0, 0
             if atom_idx is not None:
-                atom_mask = arr_atom[atom_idx, :, :]
+                arr = self.get_info(self._data[cid], "arr_atom")
+                atom_mask = arr[atom_idx, :, :]
             if bond_idx is not None:
-                bond_mask = arr_bond[bond_idx, :, :]
+                arr = self.get_info(self._data[cid], "arr_bond")
+                bond_mask = arr[bond_idx, :, :]
 
-            return atom_mask + bond_mask
+            return (atom_mask + bond_mask) > 0
+
 
     def __len__(self):
         return len(self._data)
@@ -153,11 +145,9 @@ class ImgDataset(MoleculeDataset):
     modals = ["img"]
     image_transform = get_default_transform()[0]
 
-
 class MeanStdDataset(MoleculeDataset):
     modals = ["img"]
     image_transform = get_dummy_transform()
-
 
 def wrap_collate_fn(dataset):
     def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
@@ -168,7 +158,6 @@ def wrap_collate_fn(dataset):
 
         return data  # a MoleculeDataset with only a batch size
     return construct_molecule_batch
-
 
 class MoleculeSampler(Sampler):
     """A :class:`MMoleculeSampler` samples data from a :class:`MoleculeDataset` for a :class:`MoleculeDataLoader`."""
@@ -263,7 +252,6 @@ class MoleculeDataLoader(DataLoader):
         r"""Creates an iterator which returns :class:`MoleculeDataset`\ s"""
         return super(MoleculeDataLoader, self).__iter__()
 
-
 def create_dataset(data_dir, split, dataset_class:Type[MoleculeDataset], image_transform) -> MoleculeDataset:
 
     if split == "train":
@@ -283,7 +271,6 @@ def create_dataset(data_dir, split, dataset_class:Type[MoleculeDataset], image_t
     dataset_class.image_transform = image_transform
     dataset = dataset_class(data_index)
     return dataset
-
 
 def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
     # check the mean and std of the dataset, if not exist, calculate them, otherwise load them
