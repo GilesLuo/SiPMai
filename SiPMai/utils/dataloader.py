@@ -2,30 +2,31 @@ import json
 import pandas as pd
 import numpy as np
 import torch
+from SiPMai.utils.img_transform import get_dummy_transform, get_default_transform
 from torch.utils.data import Dataset, DataLoader, Sampler
-from typing import Tuple, List, Iterator, Union, Optional, Dict
+from typing import Tuple, List, Iterator, Union, Optional, Dict, Type
 from random import Random
 import threading
 import os
 from PIL import Image
-from SiPMai.utils.img_transform import train_transform, val_transform, test_transform
 from torchvision import transforms
 from tqdm.auto import tqdm
 
-class MoleculeDataset(Dataset):
-    data_dir = "../../pubchem_39_200_100k/"
-    # modals = ["img", "graph", "smiles", "instruction"]
-    modals = ["img"]
-    image_transform = train_transform
-    graph_transform = None
 
+
+class MoleculeDataset(Dataset):
+    modals = ["img", "graph", "smiles", "instruction"]
+    image_transform = get_dummy_transform()
+    graph_transform = None
     def __init__(self, data_index, **kwargs):
-        if not (set(self.modals).issubset({"img", "graph", "smiles", "instruction"}) and self.modals):
-            raise ValueError("modals must be a subset of {'img', 'graph', 'smiles', 'instruction'}")
         self._data = data_index
         self._batch_molecule = None
 
+
     def batch_Molecule(self):
+        if not (set(self.modals).issubset({"img", "graph", "smiles", "instruction"}) or not self.modals):
+            raise ValueError("modals must be a subset of {'img', 'graph', 'smiles', 'instruction'}")
+
         if self._batch_molecule is None:  # cache the batch data to avoid repeatedly doing the featurization
             mol_imgs = []
             mol_graphs = []
@@ -36,12 +37,13 @@ class MoleculeDataset(Dataset):
             labels = []
 
             for mol_dict in self._data:
-                img_path = os.path.join(self.data_dir, mol_dict["img_path"])
-                info_path = os.path.join(self.data_dir, mol_dict["info_path"])
-                json_path = os.path.join(self.data_dir, mol_dict["json_path"])
+                img_path = mol_dict["img_path"]
+                info_path = mol_dict["info_path"]
+                json_path = mol_dict["json_path"]
                 if "img" in self.modals:
                     img = Image.open(img_path).convert('RGB')
-                    img = self.image_transform(img)
+                    if self.image_transform is not None:
+                        img = self.image_transform(img)
                     mol_imgs.append(img)
                 else:
                     mol_imgs.append(None)
@@ -75,7 +77,7 @@ class MoleculeDataset(Dataset):
             #     labels.append(label)
             #
             # self.batch_mol_graph = [BatchMolGraph(mol_graphs)] # The required type of input of molecule model is List[BatchMolGraph]
-            self._batch_molecule = [mol_imgs, mol_graphs, mol_adjs, mol_smiles, mol_instructions, labels]  # a list of four lists
+            self._batch_molecule = [torch.stack(mol_imgs), mol_graphs, mol_adjs, mol_smiles, mol_instructions, labels]  # a list of four lists
         return self._batch_molecule
 
     def get_info(self, npz_file, key):
@@ -131,24 +133,6 @@ class MoleculeDataset(Dataset):
 
             return (atom_mask + bond_mask) > 0
 
-    def compute_global_mean_std(self, num_workers=0, batch_size=128,):
-        n = 0
-        s = np.zeros(3)
-        s2 = np.zeros(3)
-        x = np.empty((512, 512, 3), dtype=np.uint8)
-        dataloader = MoleculeDataLoader(self, num_workers=num_workers, batch_size=batch_size, shuffle=False)
-
-        for batch in tqdm((dataloader), desc='Computing mean and std in a running fashion '):
-            mol_imgs, _, _, _, _, _ = batch.batch_Molecule()
-            x[:] = np.array(mol_imgs) / 255.  # Scale pixel values to [0, 1]
-            s += x.sum(axis=(0, 1))
-            s2 += np.sum(np.square(x), axis=(0, 1))
-            n += x.shape[0] * x.shape[1]
-
-        mean = s / n
-        std = np.sqrt((s2 / n) - np.square(mean))
-
-        return mean, std
 
     def __len__(self):
         return len(self._data)
@@ -157,13 +141,23 @@ class MoleculeDataset(Dataset):
         return self._data[idx]
 
 
-def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
-    # This is the collate function
-    data = MoleculeDataset(data)  # Re-initialize a small MoleculeDataset object with the batch of data
-    data.batch_Molecule()  # Forces computation of the _batch_Molecule
+class ImgDataset(MoleculeDataset):
+    modals = ["img"]
+    image_transform = get_default_transform()[0]
 
-    return data  # a MoleculeDataset with only a batch size
+class MeanStdDataset(MoleculeDataset):
+    modals = ["img"]
+    image_transform = get_dummy_transform()
 
+def wrap_collate_fn(dataset):
+    def construct_molecule_batch(data: List[Tuple]) -> MoleculeDataset:
+        dataset_class = dataset.__class__
+        # This is the collate function
+        data = dataset_class(data)  # Re-initialize a small MoleculeDataset object with the batch of data
+        data.batch_Molecule()  # Forces computation of the _batch_Molecule
+
+        return data  # a MoleculeDataset with only a batch size
+    return construct_molecule_batch
 
 class MoleculeSampler(Sampler):
     """A :class:`MMoleculeSampler` samples data from a :class:`MoleculeDataset` for a :class:`MoleculeDataLoader`."""
@@ -208,7 +202,7 @@ class MoleculeDataLoader(DataLoader):
                  batch_size: int = 4,
                  num_workers: int = 8,
                  shuffle: bool = False,
-                 seed: int = 0):
+                 seed: int = 0, **kwargs):
         """
         :param dataset: The :class:`MoleculeDataset` containing the imgs,mols and instructions to load.
         :param batch_size: Batch size.
@@ -228,20 +222,25 @@ class MoleculeDataLoader(DataLoader):
             self._context = 'forkserver'  # In order to prevent a hanging
             self._timeout = 3600  # Just for sure that the DataLoader won't hang
 
-        self._sampler = MoleculeSampler(
-            dataset=self._dataset,
-            shuffle=self._shuffle,
-            seed=self._seed
-        )
+        if "sampler" not in kwargs:
+            self._sampler = MoleculeSampler(
+                dataset=self._dataset,
+                shuffle=self._shuffle,
+                seed=self._seed
+            )
+        else:
+            self._sampler = kwargs["sampler"]
+            del kwargs["sample"]
 
         super(MoleculeDataLoader, self).__init__(
             dataset=self._dataset,
             batch_size=self._batch_size,
             sampler=self._sampler,
             num_workers=self._num_workers,
-            collate_fn=construct_molecule_batch,
+            collate_fn=wrap_collate_fn(self._dataset),
             multiprocessing_context=self._context,
-            timeout=self._timeout
+            timeout=self._timeout,
+            **kwargs
         )
 
     @property
@@ -253,6 +252,25 @@ class MoleculeDataLoader(DataLoader):
         r"""Creates an iterator which returns :class:`MoleculeDataset`\ s"""
         return super(MoleculeDataLoader, self).__iter__()
 
+def create_dataset(data_dir, split, dataset_class:Type[MoleculeDataset], image_transform) -> MoleculeDataset:
+
+    if split == "train":
+        file_name = "train_set_index.json"
+    elif split == "val":
+        file_name = "val_set_index.json"
+    elif split == "test":
+        file_name = "test_set_index.json"
+    else:
+        raise ValueError("split must be one of ['train', 'val', 'test']")
+    data_json = os.path.join(data_dir, file_name)
+    with open(data_json, "r") as f:
+        data_index = list(json.load(f).values())
+    for i in range(len(data_index)):
+        for key in data_index[i].keys():
+            data_index[i][key] = os.path.join(data_dir, data_index[i][key])
+    dataset_class.image_transform = image_transform
+    dataset = dataset_class(data_index)
+    return dataset
 
 def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
     # check the mean and std of the dataset, if not exist, calculate them, otherwise load them
@@ -266,10 +284,21 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
         mean = stats['mean']
         std = stats['std']
     else:
-        with open(os.path.join(data_dir, "train_set_index.json"), "r") as f:
-            data_index = json.load(f)
-        dataset = MoleculeDataset(list(data_index.values()))
-        mean, std = dataset.compute_global_mean_std(num_workers=num_workers, batch_size=batch_size)
+        dataset = create_dataset(data_dir, split="train", dataset_class=MeanStdDataset,
+                                 image_transform=get_dummy_transform())
+        dataloader = MoleculeDataLoader(dataset, num_workers=num_workers, batch_size=batch_size, shuffle=False)
+
+        n = 0
+        s = np.zeros(3)
+        s2 = np.zeros(3)
+        for batch in tqdm((dataloader), desc='Computing mean and std in a running fashion '):
+            mol_imgs, _, _, _, _, _ = batch.batch_Molecule()
+            s += mol_imgs.sum(axis=(0, 2, 3))
+            s2 += np.sum(np.square(mol_imgs), axis=(0, 2, 3))
+            n += mol_imgs.shape[0] * mol_imgs.shape[2] * mol_imgs.shape[3]
+
+        mean = s / n
+        std = np.sqrt((s2 / n) - np.square(mean))
         stats = {'mean': mean.tolist(), 'std': std.tolist()}
         with open(file_path, "w") as f:
             json.dump(stats, f)

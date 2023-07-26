@@ -60,6 +60,6 @@ setup(
     keywords=["Chemistry Simulation", "STM Image Synthesis"],
     extras_require=get_extras_require(),
     project_urls={
-        "Source Code": "https://github.com/my_username/my_package", # todo
+        "Source Code": "https://github.com/GilesLuo/SiPMai",
     }
 )

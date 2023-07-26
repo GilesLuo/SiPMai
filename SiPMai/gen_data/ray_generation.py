@@ -178,7 +178,6 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     return True
 
 
-@ray.remote
 def check_cid(cid, info_dir, json_dir, img_dir):
     img_path = os.path.join(img_dir, f'{cid}_img.png')  # drawing not checked
     json_path = os.path.join(json_dir, f'{cid}.json')
@@ -199,28 +198,23 @@ def check_cid(cid, info_dir, json_dir, img_dir):
         except Exception:
             pass
 
-    return cid, img_exists, json_exists, json_valid, npz_exists
+    return img_exists, json_exists, json_valid, npz_exists
 
-def get_task(molecule_dict, info_dir, json_dir, img_dir, num_workers):
+def get_task(molecule_dict, info_dir, json_dir, img_dir, num_workers=None):
     task_dict = {}
     broken_dict = {}
     done_dict = {}
 
-    # Parallelize the check_cid task with ray
-    ray.init(num_cpus=num_workers)
-    futures = [check_cid.remote(cid, info_dir, json_dir, img_dir) for cid in molecule_dict.keys()]
-    for i in tqdm(range(len(futures)), desc='Checking generated files'):
-        result = ray.get(futures[i])
-        # result = futures[i]
-        cid, img_exists, json_exists, json_valid, npz_exists = result
+    futures = []
+    # for i in tqdm(range(len(futures)), desc='Checking generated files'):
+    for cid in tqdm(molecule_dict.keys(), desc='Checking generated files'):
+        img_exists, json_exists, json_valid, npz_exists = check_cid(cid, info_dir, json_dir, img_dir)
         if img_exists and json_exists and json_valid and npz_exists:
             done_dict[cid] = molecule_dict[cid]
         elif img_exists or json_exists or npz_exists:
             broken_dict[cid] = molecule_dict[cid]
         else:
             task_dict[cid] = molecule_dict[cid]
-    ray.shutdown()
-
     return task_dict, broken_dict, done_dict
 
 
@@ -236,6 +230,7 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
     if os.path.exists(save_dir):
         tasks = {}
         task_dict, broken_dict, done_dict = get_task(mol_dict, info_dir, json_dir, img_dir, num_cpu)
+        task_dict = {**task_dict, **broken_dict}
     else:
         tasks = {}
         task_dict = mol_dict
@@ -243,32 +238,41 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
         done_dict = {}
     print(
         f"{len(task_dict)} molecules to process, {len(broken_dict)} broken molecules (need to be regenerated), {len(done_dict)} done")
+    if len(task_dict) == 0:
+        return
+
     os.makedirs(info_dir, exist_ok=True)
     os.makedirs(json_dir, exist_ok=True)
     os.makedirs(img_dir, exist_ok=True)
 
-    ray.init(num_cpus=num_cpu, local_mode=debug_mode)
-    for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
-        task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
-                                              blur_sigma, use_motion_blur, use_gaussian_noise,
-                                              gen_original_img, gen_mol_drawing, show)
-        tasks[task_id] = mol
+    if num_cpu > 1:
+        ray.init(num_cpus=num_cpu, local_mode=debug_mode)
+        for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
+            task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
+                                                  blur_sigma, use_motion_blur, use_gaussian_noise,
+                                                  gen_original_img, gen_mol_drawing, show)
+            tasks[task_id] = mol
 
-    pbar = tqdm(total=len(tasks), desc="Processing tasks")
-    while len(tasks):
-        done_ids, _ = ray.wait(list(tasks.keys()), num_returns=1)
-        for ready_id in done_ids:
-            try:
-                result = ray.get(ready_id)
-                molecule_name = tasks.pop(ready_id)
-                pbar.set_description(molecule_name)
-                pbar.update()
-            except ray.exceptions.RayTaskError as ex:
-                print(f"Task failed for molecule {tasks[ready_id]} with error: {ex}")
-        time.sleep(0.5)  # To avoid busy waiting
+        pbar = tqdm(total=len(tasks), desc="Processing tasks")
+        while len(tasks):
+            done_ids, _ = ray.wait(list(tasks.keys()), num_returns=1)
+            for ready_id in done_ids:
+                try:
+                    result = ray.get(ready_id)
+                    molecule_name = tasks.pop(ready_id)
+                    pbar.set_description(molecule_name)
+                    pbar.update()
+                except ray.exceptions.RayTaskError as ex:
+                    print(f"Task failed for molecule {tasks[ready_id]} with error: {ex}")
+            time.sleep(0.1)  # To avoid busy waiting
 
-    pbar.close()
-    ray.shutdown()
+        pbar.close()
+        ray.shutdown()
+    else:
+        for mol, smiles in tqdm(task_dict.items(), desc="generating molecules, single core"):
+            points_height_matrix(smiles, mol, resolution, info_dir, json_dir, img_dir,
+                                                  blur_sigma, use_motion_blur, use_gaussian_noise,
+                                                  gen_original_img, gen_mol_drawing, show)
     return
 
 if __name__ == "__main__":

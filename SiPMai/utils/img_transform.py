@@ -1,4 +1,5 @@
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 
 
 def build_transform(split, input_size, auto_augment, interpolation, mean, std,
@@ -30,20 +31,33 @@ def build_transform(split, input_size, auto_augment, interpolation, mean, std,
     return transform
 
 
-mean = [0.485, 0.456, 0.406]
-std = [0.229, 0.224, 0.225]
-input_size=(224, 224)
-train_transform = build_transform(split="train", input_size=input_size, auto_augment=False, interpolation=3,
-                                  mean=mean, std=std,
-                                  horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                                  translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
-val_transform = build_transform(split="val", input_size=input_size, auto_augment=False, interpolation=3,
-                                mean=mean, std=std,
+def get_default_transform():
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+    input_size=(224, 224)
+    interpolation=InterpolationMode.BILINEAR
+    train_transform = build_transform(split="train", input_size=input_size, auto_augment=False, interpolation=interpolation,
+                                      mean=mean, std=std,
+                                      horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
+                                      translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
+    val_transform = build_transform(split="val", input_size=input_size, auto_augment=False, interpolation=interpolation,
+                                    mean=mean, std=std,
 
-                                horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                                translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
+                                    horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
+                                    translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
 
-test_transform = build_transform(split="test", input_size=input_size, auto_augment=False, interpolation=3,
-                                 mean=mean, std=std,
-                                 horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                                 translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
+    test_transform = build_transform(split="test", input_size=input_size, auto_augment=False, interpolation=interpolation,
+                                     mean=mean, std=std,
+                                     horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
+                                     translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1)
+    return train_transform, val_transform, test_transform
+
+def get_dummy_transform():
+    input_size=(224, 224)
+    transform = transforms.Compose(
+        [
+            transforms.Resize(input_size[0] + 32),
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+        ])
+    return transform

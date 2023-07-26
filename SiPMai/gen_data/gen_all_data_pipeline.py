@@ -97,7 +97,7 @@ def main() -> None:
                         help="Whether to add Gaussian noise to the images.")
     parser.add_argument("--gen_original_img", type=bool, default=True, help="Whether to generate original images.")
     parser.add_argument("--gen_mol_drawing", type=bool, default=True, help="Whether to generate mol images for eye inspection.")
-    parser.add_argument("--num_cpus", type=int, default=0, help="The number of CPUs to be used for data generation.")
+    parser.add_argument("--num_cpus", type=int, default=1, help="The number of CPUs to be used for data generation.")
     parser.add_argument("--show", type=bool, default=False, help="Whether to display the generated images.")
 
     # data indices args
@@ -114,7 +114,7 @@ def main() -> None:
     from pkg_resources import resource_filename
     args.smiles_file = resource_filename('SiPMai', f'smiles/{args.smiles_file}')
     cmd_dir = os.getcwd()
-    args.mol_save_dir = os.path.join(cmd_dir, args.mol_save_dir)
+    args.mol_save_dir = os.path.abspath(os.path.join(cmd_dir, args.mol_save_dir))
     print("mol_save_dir set to command execution dir: ", args.mol_save_dir)
     gen_all_data(smiles_file=args.smiles_file, num_mol=args.num_mol, csv_file=args.csv_file, min_atom=args.min_atom,
                  max_atom=args.max_atom, num_cpus=args.num_cpus, mol_save_dir=args.mol_save_dir,
