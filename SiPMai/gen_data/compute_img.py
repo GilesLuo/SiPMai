@@ -63,7 +63,7 @@ def cal_atom_projection(atom_position, mesh, z_min, get_coincidence=False):
 def bond_location_cal(bond_list, mesh, points_bond_bool, resolution):
     @jit(nopython=True)
     def cal_bond_atom_loc(point1_x, point1_y, point2_x, point2_y, a1_radius, a2_radius):
-        bond_height = math.sqrt(math.pow((point2_x - point1_x), 2) + math.pow((point2_y - point2_y), 2)) / 3
+        bond_height = math.sqrt(math.pow((point2_x - point1_x), 2) + math.pow((point2_y - point1_y), 2)) / 3
         bond_x = (point1_x + point2_x) / 2
         bond_y = (point1_y + point2_y) / 2
         bond_width = (a1_radius + a2_radius) / 6
