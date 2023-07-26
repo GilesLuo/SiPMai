@@ -52,31 +52,22 @@ class MoleculeDataset(Dataset):
                 else:
                     mol_graphs.append(None)
                 if "instruction" in self.modals:  # provide a random instruction on the bond and atom with label
-                    # randomly pick atom_idx and bond_idx on the molecule
-                    # atom_idx = np.random.randint(0, len(mol_smile))
-                    # bond_idx = np.random.randint(0, len(mol_smile))
-                    # self.create_mask(mol_smile, atom_idx, bond_idx)
-                    raise NotImplementedError
+                    arr_atom = self.get_info(info_path, "arr_atom")
+                    arr_bond = self.get_info(info_path, "arr_bond")
+                    adj_matrix = self.get_info(info_path, "adj_matrix")
+                    atom_idx = np.random.randint(0, arr_atom.shape[0])
+                    bond_idx = np.random.randint(0, arr_bond.shape[0])
+                    mask = self.create_mask(arr_atom, arr_bond, atom_idx, bond_idx)
+                    mol_instructions.append([atom_idx, bond_idx]) # todo: atom_instruction should be a one hot vector with a sparse adj matrix
+                    mol_adjs.append(adj_matrix)
+                    labels.append(mask)
                 else:
                     mol_instructions.append(None)
                 if "smiles" in self.modals:
-                    # mol_graph = MolGraph(mol_smile)
-                    # mol_graphs.append(mol_graph)
-                    raise NotImplementedError
+                    with open(json_path, "r") as f:
+                        mol_smiles.append(json.load(f)["smiles"])
                 else:
                     mol_smiles.append(None)
-
-            #     mol_graph = MolGraph(mol_smile)
-            #     mol_graphs.append(mol_graph)
-            #     if self.img_directory == None:
-            #         mol_imgs.append(torch.rand(26, 26))
-            #     else:
-            #         pass
-            #     if self.instruction_directory == None:
-            #         mol_instructions.append(torch.rand(26, 26))
-            #     labels.append(label)
-            #
-            # self.batch_mol_graph = [BatchMolGraph(mol_graphs)] # The required type of input of molecule model is List[BatchMolGraph]
             self._batch_molecule = [torch.stack(mol_imgs), mol_graphs, mol_adjs, mol_smiles, mol_instructions, labels]  # a list of four lists
         return self._batch_molecule
 
@@ -111,7 +102,7 @@ class MoleculeDataset(Dataset):
         else:
             raise KeyError
 
-    def create_mask(self, cid, atom_idx: Optional[Union[int, List[int]]] = None,
+    def create_mask(self, arr_atom=None, arr_bond=None, atom_idx: Optional[Union[int, List[int]]] = None,
                     bond_idx: Optional[Union[int, List[int]]] = None):
         """
         create a binary mask from the 3D bool array in the info.npz file
@@ -124,12 +115,10 @@ class MoleculeDataset(Dataset):
             raise ValueError("atom_idx and bond_idx cannot be None at the same time")
         else:
             atom_mask, bond_mask = 0, 0
-            if atom_idx is not None:
-                arr = self.get_info(self._data[cid], "arr_atom")
-                atom_mask = arr[atom_idx, :, :]
-            if bond_idx is not None:
-                arr = self.get_info(self._data[cid], "arr_bond")
-                bond_mask = arr[bond_idx, :, :]
+            if atom_idx is not None and arr_atom is not None:
+                atom_mask = arr_atom[atom_idx, :, :]
+            if bond_idx is not None and arr_bond is not None:
+                bond_mask = arr_bond[bond_idx, :, :]
 
             return (atom_mask + bond_mask) > 0
 
@@ -308,11 +297,9 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
 if __name__ == '__main__':
 
     # Test the data loader
-    dataset_json = "../../pubchem_39_200_100k/train_set_index.json"
-    with open(dataset_json, "r") as f:
-        data_index = json.load(f)
-
-    dataset = MoleculeDataset(list(data_index.values()))
+    dataset_json = "../../../pubchem_39_200_100k"
+    dataset = create_dataset(dataset_json, split="train",
+                             dataset_class=MoleculeDataset, image_transform=get_dummy_transform())
 
     dataloader = MoleculeDataLoader(dataset, num_workers=0, batch_size=2, shuffle=True)
 
