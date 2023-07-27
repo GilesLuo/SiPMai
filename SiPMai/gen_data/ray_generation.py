@@ -245,34 +245,29 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
     os.makedirs(json_dir, exist_ok=True)
     os.makedirs(img_dir, exist_ok=True)
 
-    if num_cpu > 1:
-        ray.init(num_cpus=num_cpu, local_mode=debug_mode)
-        for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
-            task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
-                                                  blur_sigma, use_motion_blur, use_gaussian_noise,
-                                                  gen_original_img, gen_mol_drawing, show)
-            tasks[task_id] = mol
 
-        pbar = tqdm(total=len(tasks), desc="Processing tasks")
-        while len(tasks):
-            done_ids, _ = ray.wait(list(tasks.keys()), num_returns=1)
-            for ready_id in done_ids:
-                try:
-                    result = ray.get(ready_id)
-                    molecule_name = tasks.pop(ready_id)
-                    pbar.set_description(molecule_name)
-                    pbar.update()
-                except ray.exceptions.RayTaskError as ex:
-                    print(f"Task failed for molecule {tasks[ready_id]} with error: {ex}")
-            time.sleep(0.1)  # To avoid busy waiting
+    ray.init(num_cpus=num_cpu, local_mode=debug_mode)
+    for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
+        task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
+                                              blur_sigma, use_motion_blur, use_gaussian_noise,
+                                              gen_original_img, gen_mol_drawing, show)
+        tasks[task_id] = mol
 
-        pbar.close()
-        ray.shutdown()
-    else:
-        for mol, smiles in tqdm(task_dict.items(), desc="generating molecules, single core"):
-            points_height_matrix(smiles, mol, resolution, info_dir, json_dir, img_dir,
-                                                  blur_sigma, use_motion_blur, use_gaussian_noise,
-                                                  gen_original_img, gen_mol_drawing, show)
+    pbar = tqdm(total=len(tasks), desc="Processing tasks")
+    while len(tasks):
+        done_ids, _ = ray.wait(list(tasks.keys()), num_returns=1)
+        for ready_id in done_ids:
+            try:
+                result = ray.get(ready_id)
+                molecule_name = tasks.pop(ready_id)
+                pbar.set_description(molecule_name)
+                pbar.update()
+            except ray.exceptions.RayTaskError as ex:
+                print(f"Task failed for molecule {tasks[ready_id]} with error: {ex}")
+        time.sleep(0.1)  # To avoid busy waiting
+
+    pbar.close()
+    ray.shutdown()
     return
 
 if __name__ == "__main__":
