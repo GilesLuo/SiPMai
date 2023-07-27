@@ -66,7 +66,9 @@ def bond_location_cal(bond_list, mesh, points_bond_bool, resolution):
         bond_height = math.sqrt(math.pow((point2_x - point1_x), 2) + math.pow((point2_y - point1_y), 2)) / 3
         bond_x = (point1_x + point2_x) / 2
         bond_y = (point1_y + point2_y) / 2
-        bond_width = (a1_radius + a2_radius) / 6
+        bond_width = (a1_radius + a2_radius) / 4
+        if bond_width > 0.8 * a1_radius or bond_width > 0.8 * a2_radius:
+            bond_width = min(a1_radius, a2_radius) * 0.8
         dx = point2_x - point1_x
         dy = point2_y - point1_y
         angle = math.atan2(dy, dx)
