@@ -293,6 +293,7 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128,):
         s2 = np.zeros(3)
         for batch in tqdm((dataloader), desc='Computing mean and std in a running fashion '):
             mol_imgs, _, _, _, _, _ = batch.batch_Molecule()
+            mol_imgs = mol_imgs.numpy()
             s += mol_imgs.sum(axis=(0, 2, 3))
             s2 += np.sum(np.square(mol_imgs), axis=(0, 2, 3))
             n += mol_imgs.shape[0] * mol_imgs.shape[2] * mol_imgs.shape[3]
