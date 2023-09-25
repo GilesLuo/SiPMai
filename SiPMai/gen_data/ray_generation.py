@@ -114,7 +114,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     if gen_original_img:
         orig_arr = atom_mask.sum(axis=0)
         orig_arr[orig_arr > 0] = 255
-        im = Image.fromarray(orig_arr[::-1, :].astype(np.uint8))
+        im = Image.fromarray(orig_arr.astype(np.uint8))
         im = im.convert('L')
         im.save(orig_img_name)
 
@@ -124,7 +124,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
         height_mesh = motion_blur(height_mesh)
     if use_gaussian_noise:
         height_mesh = uniform_noise(height_mesh)
-    plt.figure(figsize=(resolution, resolution), dpi=1)
+    plt.figure(figsize=(resolution, resolution))
     plt.imshow(height_mesh, cmap='gray', origin='lower')
     plt.axis('off')
     fig = plt.gcf()
