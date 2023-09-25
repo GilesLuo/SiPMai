@@ -30,6 +30,7 @@ def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, m
         use_motion_blur (bool): Whether to use motion blur in the images.
         use_gaussian_noise (bool): Whether to add Gaussian noise to the images.
         gen_demo_img (bool): Whether to generate original images.
+        gen_mol_drawing (bool): Whether to generate mol drawing.
         img_show (bool): Whether to display the generated images.
         train_ratio (float): The ratio of data to be used for training.
         val_ratio (float): The ratio of data to be used for validation.
@@ -78,7 +79,7 @@ def main() -> None:
     # gen smiles args
     parser.add_argument("--smiles_file", type=str, default="pubchem_39_200_100k.json",
                         help="The path to the file containing SMILES strings.")
-    parser.add_argument("--num_mol", type=int, default=10000, help="The number of molecules to be generated.")
+    parser.add_argument("--num_mol", type=int, default=100000, help="The number of molecules to be generated.")
     parser.add_argument("--csv_file", type=str, default="../CID-SMILES2.csv",
                         help="The path to the CSV file containing molecular data.")
     parser.add_argument("--min_atom", type=int, default=39, help="The minimum number of atoms for a molecule.")

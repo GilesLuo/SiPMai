@@ -120,7 +120,7 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
         height_mesh = motion_blur(height_mesh)
     if use_gaussian_noise:
         height_mesh = uniform_noise(height_mesh)
-    plt.figure(figsize=(resolution, resolution))
+    plt.figure(figsize=(resolution, resolution), dpi=1)
     plt.imshow(height_mesh, cmap='gray', origin='lower')
     plt.axis('off')
     fig = plt.gcf()
