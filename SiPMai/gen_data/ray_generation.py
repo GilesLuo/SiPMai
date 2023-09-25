@@ -19,7 +19,7 @@ ENABLE_MAYAVI = False
 @ray.remote
 def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir, json_dir, img_dir,
                          blur_sigma, use_motion_blur, use_gaussian_noise,
-                         gen_original_img, gen_mol_drawing,
+                         gen_demo_img, gen_mol_drawing,
                          show=False):
     """
     generate 5 files for each molecule:
@@ -33,7 +33,8 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     5. json_dir/.json                   json file containing the SMILES string and other useful information
     """
     img_name = os.path.join(img_dir, str(molecule_name) + '_img.png')
-    orig_img_name = os.path.join(img_dir, str(molecule_name) + '_orig_img.png')
+    atom_demo_name = os.path.join(info_dir, str(molecule_name) + '_atom_demo.png')
+    bond_demo_name = os.path.join(info_dir, str(molecule_name) + '_bond_demo.png')
     points_info_name = os.path.join(info_dir, str(molecule_name) + '_points_info.npz')
     drawing_name = os.path.join(info_dir, str(molecule_name) + '_mol_drawing.png')
     json_name = os.path.join(json_dir, str(molecule_name) + '.json')
@@ -43,8 +44,9 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
 
     # check done
     check_list = [img_name, points_info_name, json_name]
-    if gen_original_img:
-        check_list.append(orig_img_name)
+    if gen_demo_img:
+        check_list.append(atom_demo_name)
+        check_list.append(bond_demo_name)
     if gen_mol_drawing:
         check_list.append(drawing_name)
     done = np.array([os.path.exists(file) for file in check_list])
@@ -111,12 +113,6 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     height_mesh, atom_mask, _ = cal_atom_projection(atom_position, mesh, z_min, get_coincidence=False)
     # if is_coincide.any():
     #     raise ValueError("atom coincide")
-    if gen_original_img:
-        orig_arr = atom_mask.sum(axis=0)
-        orig_arr[orig_arr > 0] = 255
-        im = Image.fromarray(orig_arr.astype(np.uint8))
-        im = im.convert('L')
-        im.save(orig_img_name)
 
     # get blurred image
     height_mesh = gaussian_filter(height_mesh, sigma=blur_sigma)
@@ -157,9 +153,10 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
     points_bond_bool = bond_location_cal(bond_list, mesh, points_bond_bool, resolution)
 
     # save np.array
-
     arr_atom = np.array(atom_mask, dtype=bool)
+    arr_atom = arr_atom[:, ::-1, :]  # flip the image
     arr_bond = np.array(points_bond_bool, dtype=bool)
+    arr_bond = arr_bond[:, ::-1, :]  # flip the image
 
     arr_atom_compressed = compress_binary_arr(arr_atom)
     arr_bond_compressed = compress_binary_arr(arr_bond)
@@ -168,6 +165,17 @@ def points_height_matrix(smi: str, molecule_name: int, resolution: int, info_dir
                         arr_atom=arr_atom_compressed, arr_bond=arr_bond_compressed, adj_matrix=molecule_adjacent_matrix,
                         arr_atom_shape=arr_atom.shape, arr_bond_shape=arr_bond.shape,
                         molecule_points_height=height_mesh)
+    if gen_demo_img:
+        atom_map = arr_atom.sum(axis=0)
+        atom_map[atom_map > 0] = 255
+        atom_im = Image.fromarray(atom_map.astype(np.uint8)).convert('L')
+        atom_im.save(atom_demo_name)
+
+        bond_map = arr_bond.sum(axis=0)
+        bond_map[bond_map > 0] = 255
+        bond_im = Image.fromarray(bond_map.astype(np.uint8)).convert('L')
+        bond_im.save(bond_demo_name)
+
     try:
         with open(json_name, 'w', encoding='utf-8') as f:
             json.dump({"bond_dict": bond_record_dic, "smiles": smi}, f)
@@ -218,7 +226,7 @@ def get_task(molecule_dict, info_dir, json_dir, img_dir, num_workers=None):
     return task_dict, broken_dict, done_dict
 
 
-def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_original_img=False, gen_mol_drawing=False,
+def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_demo_img=False, gen_mol_drawing=False,
                  num_cpu=None, show=False, debug_mode=False):
 
 
@@ -250,7 +258,7 @@ def ray_gen_main(mol_dict, save_dir, resolution, blur_sigma, use_motion_blur, us
     for mol, smiles in tqdm(task_dict.items(), desc="adding tasks to Ray"):
         task_id = points_height_matrix.remote(smiles, mol, resolution, info_dir, json_dir, img_dir,
                                               blur_sigma, use_motion_blur, use_gaussian_noise,
-                                              gen_original_img, gen_mol_drawing, show)
+                                              gen_demo_img, gen_mol_drawing, show)
         tasks[task_id] = mol
 
     pbar = tqdm(total=len(tasks), desc="Processing tasks")
