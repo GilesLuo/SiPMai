@@ -129,6 +129,14 @@ def get_dummy_transform():
         [
             transforms.ToTensor(),
         ])
+    return transform
+
+
+def get_dummy_paired_transform():
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ])
 
     def paired_transforms(img, mask):
         img, mask = transform(img), transform(mask)

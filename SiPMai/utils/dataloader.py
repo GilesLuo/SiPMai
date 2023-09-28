@@ -2,7 +2,7 @@ import json
 import pandas as pd
 import numpy as np
 import torch
-from SiPMai.utils.img_transform import get_dummy_transform
+from SiPMai.utils.img_transform import get_dummy_transform, get_dummy_paired_transform
 from torch.utils.data import Dataset, DataLoader, Sampler
 from typing import Tuple, List, Iterator, Union, Optional, Dict, Type
 from random import Random
@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 class MoleculeDataset(Dataset):
     modals = ["img", "graph", "smiles", "instruction"]
-    image_transform = get_dummy_transform()
+    image_transform = get_dummy_paired_transform()
     graph_transform = None
 
     def __init__(self, data_index, **kwargs):
