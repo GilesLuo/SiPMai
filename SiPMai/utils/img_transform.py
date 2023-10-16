@@ -42,7 +42,7 @@ def build_transform(mode, input_size, auto_augment, interpolation, in_channel, m
 
 class PairedTransforms:
     def __init__(self, input_size, interpolation, horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                 translate=(0.1, 0.1), scale=None, shear=None):
+                 translate=(0.1, 0.1), scale=None, shear=None, seed=None):
         self.input_size = input_size
         self.interpolation = interpolation
         self.horizontal_flip_prob = horizontal_flip_prob
@@ -51,6 +51,8 @@ class PairedTransforms:
         self.translate = translate
         self.scale = scale
         self.shear = shear
+        if seed is not None:
+            random.seed(seed)
 
     def __call__(self, img, mask):
         # Resize
@@ -78,7 +80,8 @@ class PairedTransforms:
         mask = TF.rotate(mask, angle)
 
         # RandomAffine
-        params = transforms.RandomAffine.get_params(self.rotation_range, self.translate, self.scale, self.shear,
+        params = transforms.RandomAffine.get_params((-self.rotation_range, self.rotation_range),
+                                                    self.translate, self.scale, self.shear,
                                                     img.size)
         img = TF.affine(img, *params, interpolation=self.interpolation)
         mask = TF.affine(mask, *params, interpolation=self.interpolation)
@@ -88,13 +91,15 @@ class PairedTransforms:
 
 def build_paired_transform(input_size, auto_augment, interpolation, in_channel, mean, std,
                            horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                           translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1):
+                           translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1, seed=1):
     paired_transform = PairedTransforms(input_size, interpolation, horizontal_flip_prob, vertical_flip_prob,
-                                        rotation_range, translate, scale, shear)
+                                        rotation_range, translate, scale, shear, seed)
 
     input_postprocess = []
     if in_channel == 1:
         input_postprocess += [transforms.Grayscale(num_output_channels=1)]
+        mean = mean[0]
+        std = std[0]
     elif in_channel == 3:
         pass
     else:
@@ -143,3 +148,45 @@ def get_dummy_paired_transform():
         return img, mask
 
     return paired_transforms
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from PIL import Image
+    # Step 1: Generate two random "images" using PyTorch
+    original_img1 = Image.open("../unittest/cid117980125_atom_demo.png").convert('RGB')  # A random 3-channel image
+    original_img2 = Image.open("../unittest/cid117980125_img.png").convert('RGB')# Another random 3-channel image
+
+
+
+    # Step 3: Plot the original and transformed images side by side
+    def tensor_to_image(tensor):
+        # Convert tensor to numpy and transpose from CxHxW to HxWxC
+        return tensor.detach().numpy().transpose(1, 2, 0)
+    input_size = (244, 244)
+    interpolation = InterpolationMode.BILINEAR
+    paired_transform = build_paired_transform(input_size, False, interpolation
+                                              , 1, [0.5, 0.5, 0.5], [0.1, 0.1, 0.1])
+
+    for i in range(10):
+        transformed_img1, transformed_img2 = paired_transform(original_img1, original_img2)
+        fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+
+        axes[0, 0].imshow(original_img1)
+        axes[0, 0].set_title('Original Image 1')
+        axes[0, 0].axis('off')
+
+        axes[0, 1].imshow(original_img2)
+        axes[0, 1].set_title('Original Image 2')
+        axes[0, 1].axis('off')
+
+        axes[1, 0].imshow(tensor_to_image(transformed_img1))
+        axes[1, 0].set_title('Transformed Image 1')
+        axes[1, 0].axis('off')
+
+        axes[1, 1].imshow(tensor_to_image(transformed_img2))
+        axes[1, 1].set_title('Transformed Image 2')
+        axes[1, 1].axis('off')
+
+        plt.tight_layout()
+        plt.show()

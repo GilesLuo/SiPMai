@@ -271,7 +271,7 @@ def create_dataset(data_dir, split, dataset_class: Type[MoleculeDataset], image_
     return dataset
 
 
-def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128, ):
+def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128, device="cuda" if torch.cuda.is_available() else "cpu"):
     # check the mean and std of the dataset, if not exist, calculate them, otherwise load them
 
     file_path = os.path.join(data_dir, "image_stats.json")
@@ -288,18 +288,18 @@ def get_dataset_mean_std(data_dir, redo=False, num_workers=0, batch_size=128, ):
         dataloader = MoleculeDataLoader(dataset, num_workers=num_workers, batch_size=batch_size, shuffle=False)
 
         n = 0
-        s = np.zeros(3)
-        s2 = np.zeros(3)
+        s = torch.zeros(3).to(device)
+        s2 = torch.zeros(3).to(device)
         for batch in tqdm((dataloader), desc='Computing mean and std in a running fashion '):
             mol_imgs, _, _, _, _, _ = batch.batch_Molecule()
-            mol_imgs = mol_imgs.numpy()
+            mol_imgs = mol_imgs.to(device)
             s += mol_imgs.sum(axis=(0, 2, 3))
-            s2 += np.sum(np.square(mol_imgs), axis=(0, 2, 3))
+            s2 += (mol_imgs ** 2).sum(axis=(0, 2, 3))
             n += mol_imgs.shape[0] * mol_imgs.shape[2] * mol_imgs.shape[3]
 
         mean = s / n
-        std = np.sqrt((s2 / n) - np.square(mean))
-        stats = {'mean': mean.tolist(), 'std': std.tolist()}
+        std = torch.sqrt((s2 / n) - torch.square(mean))
+        stats = {'mean': mean.cpu().numpy().tolist(), 'std': std.cpu().numpy().tolist()}
         with open(file_path, "w") as f:
             json.dump(stats, f)
     return mean, std

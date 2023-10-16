@@ -62,7 +62,7 @@ def gen_all_data(smiles_file: str, num_mol: int, csv_file: str, min_atom: int, m
                  resolution, blur_sigma, use_motion_blur, use_gaussian_noise, gen_demo_img, gen_mol_drawing,
                  num_cpus, img_show, development)
     gen_index_main(mol_save_dir, train_ratio, val_ratio, test_ratio, split_seed)
-    get_dataset_mean_std(mol_save_dir, redo=redo_mean_std, num_workers=num_cpus, batch_size=mean_std_batch_size
+    get_dataset_mean_std(mol_save_dir, redo=redo_mean_std, num_workers=min(num_cpus, 10), batch_size=mean_std_batch_size
                             )
 
 def main() -> None:
