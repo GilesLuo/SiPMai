@@ -89,11 +89,27 @@ class PairedTransforms:
         return img, mask
 
 
+class PairedTransformsFunction:
+    def __init__(self, paired_transform, input_postprocess, label_postprocess):
+        self.paired_transform = paired_transform
+        self.input_postprocess = input_postprocess
+        self.label_postprocess = label_postprocess
+
+    def __call__(self, img, mask):
+        img, mask = self.paired_transform(img, mask)
+        for t in self.input_postprocess:
+            img = t(img)
+        for t in self.label_postprocess:
+            mask = t(mask)
+        return img, mask
+
 def build_paired_transform(input_size, auto_augment, interpolation, in_channel, mean, std,
                            horizontal_flip_prob=0.5, vertical_flip_prob=0.5, rotation_range=10,
-                           translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1, seed=1):
-    paired_transform = PairedTransforms(input_size, interpolation, horizontal_flip_prob, vertical_flip_prob,
-                                        rotation_range, translate, scale, shear, seed)
+                           translate=(0.1, 0.1), scale=None, shear=None, erase_prob=0.1, seed=None):
+
+    transform_fn = PairedTransforms(input_size=input_size, interpolation=interpolation, seed=seed,
+                                    horizontal_flip_prob=horizontal_flip_prob, vertical_flip_prob=vertical_flip_prob,
+                                    rotation_range=rotation_range, translate=translate, scale=scale, shear=shear)
 
     input_postprocess = []
     if in_channel == 1:
@@ -104,6 +120,7 @@ def build_paired_transform(input_size, auto_augment, interpolation, in_channel, 
         pass
     else:
         raise NotImplementedError
+
     input_postprocess += [
         transforms.ToTensor(),
         transforms.Normalize(mean, std),
@@ -118,15 +135,8 @@ def build_paired_transform(input_size, auto_augment, interpolation, in_channel, 
     if auto_augment:
         input_postprocess.insert(0, transforms.AutoAugment())
 
-    def paired_transforms(img, mask):
-        img, mask = paired_transform(img, mask)
-        for t in input_postprocess:
-            img = t(img)
-        for t in label_postprocess:
-            mask = t(mask)
-        return img, mask
+    return PairedTransformsFunction(transform_fn, input_postprocess, label_postprocess)
 
-    return paired_transforms
 
 
 def get_dummy_transform():
